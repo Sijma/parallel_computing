@@ -4,16 +4,17 @@
 #include <mpi.h>
 #include <string.h>
 
+#include<unistd.h>
+
 #include <stdbool.h>
 
-#define ARRAY_SIZE 60000  // Size of the array
 #define ARRAY_VALUE_CAP 100 // Maximum possible value generated
 
 //TODO: REMOVE
-void print_array(int* arr, int size) {
+void print_array(unsigned long* arr, int size) {
   printf("[");
   for (int i = 0; i < size; i++) {
-    printf("%d", arr[i]);
+    printf("%ld", arr[i]);
     if (i < size - 1) {  // Print a comma after each element except the last one
       printf(", ");
     }
@@ -22,7 +23,7 @@ void print_array(int* arr, int size) {
 }
 
 // Function to compare two integer arrays
-bool compare_arrays(int* a, int* b, int size) {
+bool compare_arrays(unsigned long* a, unsigned long* b, int size) {
     bool arrays_equal = true;
     for (int i = 0; i < size; i++) {
         if (a[i] != b[i]) {
@@ -44,14 +45,14 @@ int compare(const void *a, const void *b) {
 }
 
 // Function to sort an array of positive integers using qsort
-void sort_array(int* array, int size) {
-	qsort(array, size, sizeof(int), compare);
+void sort_array(unsigned long* array, long size) {
+	qsort(array, size, sizeof(unsigned long), compare);
 }
 
-void merge_bottom(int* result, int* a, int* b, int size) {
-    int i = 0;
-    int j = 0;
-    int k = 0;
+void merge_bottom(unsigned long* result, unsigned long* a, unsigned long* b, long size) {
+    long i = 0;
+    long j = 0;
+    long k = 0;
 
     // Merge the elements from the bottom of a and b into result
     while (k < size) {
@@ -66,10 +67,10 @@ void merge_bottom(int* result, int* a, int* b, int size) {
     }
 }
 
-void merge_top(int* result, int* a, int* b, int size) {
-    int i = size - 1;
-    int j = size - 1;
-    int k = size - 1;
+void merge_top(unsigned long* result, unsigned long* a, unsigned long* b, long size) {
+    long i = size - 1;
+    long j = size - 1;
+    long k = size - 1;
 
     // Merge the elements from the top of a and b into result
     while (k >= 0) {
@@ -107,6 +108,13 @@ int compute_partner(int phase, int my_rank, int size){
 }
 
 int main(int argc, char* argv[]) {
+	if(argc != 2){
+		printf("Please provide only a single argument, for the size of the array.\n");
+	}
+	
+	char *a = argv[1];
+  	long ARRAY_SIZE = atol(a);
+	
 	clock_t start, end;
     double elapsed;
 
@@ -118,86 +126,61 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
     
-    int local_array_size = ARRAY_SIZE/num_procs;
-    printf("local: %d\n",local_array_size);
-    int A[ARRAY_SIZE];
+    long local_array_size = ARRAY_SIZE/num_procs;
+    unsigned long *A = ( unsigned long *)malloc(ARRAY_SIZE * sizeof( unsigned long));
+    
     
 	if (rank == 0){
 		// Seed the random number generator using current time
 		srand(time(NULL));
 		
-		for (int i = 0; i < ARRAY_SIZE; i++) {
+		for (long i = 0; i < ARRAY_SIZE; i++) {
 			A[i] = rand()%ARRAY_VALUE_CAP;
 		}
 	}
 	
-	printf("1\n");
-	
     // Scatter the arrays to the different processes
-    int my_A[local_array_size];
-    int receive_A[local_array_size];
-    int merged_array[local_array_size];
-    MPI_Scatter(A, local_array_size, MPI_INT, my_A, local_array_size, MPI_INT, 0, MPI_COMM_WORLD);
+	unsigned long *my_A = ( unsigned long *)malloc(local_array_size * sizeof( unsigned long));
+	unsigned long *receive_A = ( unsigned long *)malloc(local_array_size * sizeof( unsigned long));
+    
+	MPI_Scatter(A, local_array_size, MPI_UNSIGNED_LONG, my_A, local_array_size, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
+    
+	unsigned long *merged_array = ( unsigned long *)malloc(local_array_size * sizeof( unsigned long));
 
     // Sort the received array using sort_array
     sort_array(my_A, local_array_size);
 
-    
     int partner;
     
-    printf("2\n");
-    
     // Perform the odd-even transposition steps
-	for (int phase = 0; phase < num_procs-1; phase++) {
-		printf("3\n");
+	for (int phase = 0; phase < num_procs; phase++) {
 		partner = compute_partner(phase, rank, num_procs);
-		printf("4\n");
-		printf("self: %d\n", rank);
-		printf("partner: %d\n", partner);
 		if (partner != -2){
-			MPI_Send(my_A, local_array_size, MPI_INT, partner, 0, MPI_COMM_WORLD);
-			printf("5\n");
-			MPI_Recv(receive_A, local_array_size, MPI_INT, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			printf("6\n");
+			MPI_Sendrecv(my_A, local_array_size, MPI_UNSIGNED_LONG, partner, 0, receive_A, local_array_size, MPI_UNSIGNED_LONG, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			if (rank < partner){
 				merge_bottom(merged_array, my_A, receive_A, local_array_size);
-				memcpy(my_A, merged_array, local_array_size*sizeof(int));
+				memcpy(my_A, merged_array, local_array_size*sizeof( unsigned long));
 			} else {
 				merge_top(merged_array, my_A, receive_A, local_array_size);
-				memcpy(my_A, merged_array, local_array_size*sizeof(int));
+				memcpy(my_A, merged_array, local_array_size*sizeof( unsigned long));
 			}
 		}
-		printf("7\n");
     }
+    unsigned long *final_array = ( unsigned long *)malloc(ARRAY_SIZE * sizeof( unsigned long));
     
-    int final_array[ARRAY_SIZE];
-    MPI_Gather(my_A, local_array_size, MPI_INT, final_array, local_array_size, MPI_INT, 0, MPI_COMM_WORLD);
-    
-    
-    // Print the sorted data
-    /*
-	if (rank == 0) {
-		print_array(final_array, ARRAY_SIZE);
-		
+	MPI_Gather(my_A, local_array_size, MPI_UNSIGNED_LONG, final_array, local_array_size, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
+	
+	if(rank == 0){
+		//print_array(final_array, ARRAY_SIZE);
 		// Stop the timer
 		end = clock();
 
 		// Calculate the elapsed time in seconds
 		elapsed = (double)(end - start) / (CLOCKS_PER_SEC / 1000);
-		printf("Elapsed time: %f miliseconds\n", elapsed);
+		printf("%.2f\n", elapsed);
     }
-    */
     
     MPI_Finalize();
-    
-    print_array(final_array, ARRAY_SIZE);
-		
-	// Stop the timer
-	end = clock();
-
-	// Calculate the elapsed time in seconds
-	elapsed = (double)(end - start) / (CLOCKS_PER_SEC / 1000);
-	printf("Elapsed time: %f miliseconds\n", elapsed);
     
     return 0;
 }
